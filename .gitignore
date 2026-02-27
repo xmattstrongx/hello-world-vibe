@@ -1,0 +1,12 @@
+# Binaries
+/bin/
+
+# Go build cache and test cache
+/.cache/
+
+# Go workspace artifacts
+*.test
+*.out
+
+# Editor/OS
+.DS_Store
