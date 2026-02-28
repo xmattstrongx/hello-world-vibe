@@ -20,6 +20,7 @@ type Config struct {
 	MaxASCII bool
 	Frames   int
 	Interval time.Duration
+	NoColor  bool
 }
 
 type Runner struct {
@@ -93,6 +94,7 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 	input, restoreInput, rawMode := startInputListenerWithCleanup(os.Stdin)
 	defer restoreInput()
 	maxASCII := cfg.MaxASCII || os.Getenv("TERM_PROGRAM") == "iTerm.app"
+	colorMode := DetectColorMode(cfg.NoColor)
 
 	frame := 0
 	for {
@@ -145,6 +147,7 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 			NextSunrise: next,
 			ISS:         iss,
 			Anim:        &anim,
+			ColorMode:   colorMode,
 		}
 		fmt.Fprint(r.Out, RenderFrame(frameData, termW, termH))
 
@@ -178,28 +181,32 @@ func RenderFrame(data FrameData, termW, termH int) string {
 	subLon := SubsolarLongitude(data.Now)
 
 	grid := makeGrid(width, height)
-	mask := renderGlobe(grid, subLon, decl, data.Frame, view, data.MaxASCII)
+	var colors [][]CellColor
+	if data.ColorMode != ColorNone {
+		colors = makeColorGrid(width, height)
+	}
+	mask := renderGlobe(grid, colors, subLon, decl, data.Frame, view, data.MaxASCII)
 	if data.Anim != nil {
-		drawStarfield(grid, data.Anim.Stars, data.Frame, mask)
+		drawStarfield(grid, colors, data.Anim.Stars, data.Frame, mask)
 		if data.Controls.Meteors {
-			drawMeteors(grid, data.Anim.Meteors, mask)
+			drawMeteors(grid, colors, data.Anim.Meteors, mask)
 		}
 		if data.Controls.Aurora {
-			drawAurora(grid, mask, subLon, decl, data.Frame)
+			drawAurora(grid, colors, mask, subLon, decl, data.Frame)
 		}
 	}
 	hot := DaylightCities(data.Lang, decl, subLon)
 	if data.Anim != nil {
 		if data.Controls.Pulses {
-			drawCityPulses(grid, hot, subLon, data.Frame)
+			drawCityPulses(grid, colors, hot, subLon, data.Frame)
 		}
 		if data.Controls.Trail {
-			drawISSTrail(grid, data.Anim.ISSTrail, subLon)
+			drawISSTrail(grid, colors, data.Anim.ISSTrail, subLon)
 		}
 	}
-	plotCities(grid, hot, subLon)
+	plotCities(grid, colors, hot, subLon)
 	if data.ISS.OK {
-		plotISS(grid, data.ISS, subLon)
+		plotISS(grid, colors, data.ISS, subLon)
 	}
 	if data.Anim != nil && data.Controls.Scanlines {
 		applyScanlines(grid, data.Frame)
@@ -220,13 +227,32 @@ func RenderFrame(data FrameData, termW, termH int) string {
 	if data.MaxASCII {
 		quality = "max"
 	}
-	header := fitLine(fmt.Sprintf("HELLO, WORLD FROM SPACE | UTC %s | VIEW %s | ASCII %s", data.Now.Format("15:04:05"), view, quality), termW)
-	lines = append(lines, header)
-	lines = append(lines, pad+strings.Repeat("=", width))
-	for _, row := range grid {
-		lines = append(lines, pad+string(row))
+	colorLabel := ""
+	if data.ColorMode != ColorNone {
+		colorLabel = " | COLOR on"
 	}
-	lines = append(lines, pad+strings.Repeat("=", width))
+	header := fitLine(fmt.Sprintf("HELLO, WORLD FROM SPACE | UTC %s | VIEW %s | ASCII %s%s", data.Now.Format("15:04:05"), view, quality, colorLabel), termW)
+	sep := pad + strings.Repeat("=", width)
+	if colors != nil {
+		lines = append(lines, padRight(header, termW))
+		lines = append(lines, padRight(sep, termW))
+		trailing := termW - leftPad - width
+		if trailing < 0 {
+			trailing = 0
+		}
+		trail := strings.Repeat(" ", trailing)
+		for y, row := range grid {
+			lines = append(lines, pad+buildColoredRow(row, colors[y])+trail)
+		}
+		lines = append(lines, padRight(sep, termW))
+	} else {
+		lines = append(lines, header)
+		lines = append(lines, sep)
+		for _, row := range grid {
+			lines = append(lines, pad+string(row))
+		}
+		lines = append(lines, sep)
+	}
 	printed := 0
 outer:
 	for _, ln := range infoLines {
@@ -234,9 +260,16 @@ outer:
 			if printed >= maxInfo {
 				break outer
 			}
-			lines = append(lines, fitLine(wrapped, termW))
+			if colors != nil {
+				lines = append(lines, padRight(fitLine(wrapped, termW), termW))
+			} else {
+				lines = append(lines, fitLine(wrapped, termW))
+			}
 			printed++
 		}
+	}
+	if colors != nil {
+		return renderColoredFrame(lines, termW, termH)
 	}
 	return renderFixedFrame(lines, termW, termH)
 }

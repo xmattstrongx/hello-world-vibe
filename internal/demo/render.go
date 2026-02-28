@@ -13,7 +13,7 @@ func makeGrid(width, height int) [][]rune {
 	return grid
 }
 
-func renderGlobe(grid [][]rune, subLon, decl float64, frame int, view string, maxASCII bool) [][]bool {
+func renderGlobe(grid [][]rune, colors [][]CellColor, subLon, decl float64, frame int, view string, maxASCII bool) [][]bool {
 	height := len(grid)
 	if height == 0 {
 		return nil
@@ -88,6 +88,9 @@ func renderGlobe(grid [][]rune, subLon, decl float64, frame int, view string, ma
 			if maxASCII && noise > 0.18 && illum > -0.2 && idx > 2 {
 				grid[y][x] = '#'
 			}
+			if colors != nil {
+				colors[y][x] = globePixelColor(illum, noise, cloud, edgeShade)
+			}
 		}
 	}
 	return mask
@@ -106,7 +109,7 @@ func cloudNoise(lat, lon, frame float64) float64 {
 	return (v + 2) / 4
 }
 
-func drawStarfield(grid [][]rune, stars []Star, frame int, mask [][]bool) {
+func drawStarfield(grid [][]rune, colors [][]CellColor, stars []Star, frame int, mask [][]bool) {
 	for _, s := range stars {
 		if s.Y < 0 || s.Y >= len(grid) || s.X < 0 || s.X >= len(grid[0]) {
 			continue
@@ -123,10 +126,20 @@ func drawStarfield(grid [][]rune, stars []Star, frame int, mask [][]bool) {
 			ch = '*'
 		}
 		grid[s.Y][s.X] = ch
+		if colors != nil {
+			switch ch {
+			case '*':
+				colors[s.Y][s.X] = colStarBright
+			case '+':
+				colors[s.Y][s.X] = colStarMed
+			default:
+				colors[s.Y][s.X] = colStarDim
+			}
+		}
 	}
 }
 
-func drawMeteors(grid [][]rune, meteors []Meteor, mask [][]bool) {
+func drawMeteors(grid [][]rune, colors [][]CellColor, meteors []Meteor, mask [][]bool) {
 	for _, m := range meteors {
 		x := m.X
 		y := m.Y
@@ -147,11 +160,21 @@ func drawMeteors(grid [][]rune, meteors []Meteor, mask [][]bool) {
 				ch = '.'
 			}
 			grid[py][px] = ch
+			if colors != nil {
+				switch tail {
+				case 0:
+					colors[py][px] = colMeteorHead
+				case 1:
+					colors[py][px] = colMeteorTail
+				default:
+					colors[py][px] = colMeteorFade
+				}
+			}
 		}
 	}
 }
 
-func drawAurora(grid [][]rune, mask [][]bool, subLon, decl float64, frame int) {
+func drawAurora(grid [][]rune, colors [][]CellColor, mask [][]bool, subLon, decl float64, frame int) {
 	width := len(grid[0])
 	height := len(grid)
 	for y := 0; y < height; y++ {
@@ -170,14 +193,20 @@ func drawAurora(grid [][]rune, mask [][]bool, subLon, decl float64, frame int) {
 			wave := math.Sin((float64(x)+float64(frame)*0.8)/3.6) + math.Cos((float64(y)+float64(frame)*0.3)/2.1)
 			if wave > 1.0 {
 				grid[y][x] = '^'
+				if colors != nil {
+					colors[y][x] = colAuroraGreen
+				}
 			} else if wave > 0.6 {
 				grid[y][x] = '~'
+				if colors != nil {
+					colors[y][x] = colAuroraPurple
+				}
 			}
 		}
 	}
 }
 
-func plotCities(grid [][]rune, cities []City, subLon float64) {
+func plotCities(grid [][]rune, colors [][]CellColor, cities []City, subLon float64) {
 	if len(grid) == 0 || len(grid[0]) == 0 {
 		return
 	}
@@ -187,11 +216,14 @@ func plotCities(grid [][]rune, cities []City, subLon float64) {
 		x, y, ok := Project(c.Lat, c.Lon, subLon, width, height)
 		if ok {
 			grid[y][x] = 'o'
+			if colors != nil {
+				colors[y][x] = colCity
+			}
 		}
 	}
 }
 
-func drawCityPulses(grid [][]rune, cities []City, subLon float64, frame int) {
+func drawCityPulses(grid [][]rune, colors [][]CellColor, cities []City, subLon float64, frame int) {
 	width := len(grid[0])
 	height := len(grid)
 	for i, c := range cities {
@@ -213,12 +245,15 @@ func drawCityPulses(grid [][]rune, cities []City, subLon float64, frame int) {
 		for _, p := range pts {
 			if p[1] >= 0 && p[1] < height && p[0] >= 0 && p[0] < width && grid[p[1]][p[0]] == ' ' {
 				grid[p[1]][p[0]] = '.'
+				if colors != nil {
+					colors[p[1]][p[0]] = colCityPulse
+				}
 			}
 		}
 	}
 }
 
-func drawISSTrail(grid [][]rune, trail []TrailPoint, subLon float64) {
+func drawISSTrail(grid [][]rune, colors [][]CellColor, trail []TrailPoint, subLon float64) {
 	width := len(grid[0])
 	height := len(grid)
 	for _, p := range trail {
@@ -235,17 +270,24 @@ func drawISSTrail(grid [][]rune, trail []TrailPoint, subLon float64) {
 		}
 		if grid[y][x] != 'o' {
 			grid[y][x] = ch
+			if colors != nil {
+				t := float64(p.Age) / 18.0
+				colors[y][x] = blendCC(colISSTrailNew, colISSTrailOld, t)
+			}
 		}
 	}
 }
 
-func plotISS(grid [][]rune, iss ISSMarker, subLon float64) {
+func plotISS(grid [][]rune, colors [][]CellColor, iss ISSMarker, subLon float64) {
 	if len(grid) == 0 || len(grid[0]) == 0 {
 		return
 	}
 	x, y, ok := Project(iss.Lat, iss.Lon, subLon, len(grid[0]), len(grid))
 	if ok {
 		grid[y][x] = '@'
+		if colors != nil {
+			colors[y][x] = colISS
+		}
 	}
 }
 

@@ -42,6 +42,7 @@ type FrameData struct {
 	NextSunrise *time.Time
 	ISS         ISSMarker
 	Anim        *AnimationState
+	ColorMode   ColorMode
 }
 
 type ControlState struct {

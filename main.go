@@ -18,6 +18,7 @@ func main() {
 	flag.BoolVar(&compact, "compact", false, "shortcut for --view compact")
 	flag.BoolVar(&cinematic, "cinematic", false, "shortcut for --view cinematic")
 	flag.BoolVar(&cfg.MaxASCII, "max-ascii", false, "maximize ASCII detail (auto-enabled in iTerm)")
+	flag.BoolVar(&cfg.NoColor, "no-color", false, "disable color output")
 	flag.IntVar(&cfg.Frames, "frames", 0, "number of frames to render (0 = infinite)")
 	flag.DurationVar(&cfg.Interval, "interval", demo.DefaultInterval, "frame interval (example: 700ms, 1s)")
 	flag.Parse()
