@@ -38,6 +38,7 @@ type FrameData struct {
 	Frame       int
 	RawInput    bool
 	Controls    ControlState
+	Zoom        ZoomState
 	Local       *IPGeoResponse
 	NextSunrise *time.Time
 	ISS         ISSMarker
@@ -45,13 +46,19 @@ type FrameData struct {
 }
 
 type ControlState struct {
-	Paused    bool
-	Meteors   bool
-	Aurora    bool
-	Trail     bool
-	Pulses    bool
-	Scanlines bool
-	Quit      bool
+	Paused      bool
+	Meteors     bool
+	Aurora      bool
+	Trail       bool
+	Pulses      bool
+	Scanlines   bool
+	SolarSystem bool
+	Quit        bool
+}
+
+type ZoomState struct {
+	Active   bool    // currently in solar system view
+	Progress float64 // 0.0 = globe, 1.0 = solar system
 }
 
 type Star struct {

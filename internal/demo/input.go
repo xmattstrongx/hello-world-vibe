@@ -65,6 +65,8 @@ func applyCommand(ctrl *ControlState, cmd string) {
 		ctrl.Pulses = !ctrl.Pulses
 	case "s", "scan", "scanline", "scanlines":
 		ctrl.Scanlines = !ctrl.Scanlines
+	case "z", "zoom", "solar":
+		ctrl.SolarSystem = !ctrl.SolarSystem
 	case "q", "quit", "exit":
 		ctrl.Quit = true
 	}

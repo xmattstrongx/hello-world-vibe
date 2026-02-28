@@ -93,6 +93,7 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 	input, restoreInput, rawMode := startInputListenerWithCleanup(os.Stdin)
 	defer restoreInput()
 	maxASCII := cfg.MaxASCII || os.Getenv("TERM_PROGRAM") == "iTerm.app"
+	var zoom ZoomState
 
 	frame := 0
 	for {
@@ -132,6 +133,10 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 			AddISSTrail(&anim, iss.Lat, iss.Lon)
 		}
 
+		if !controls.Paused {
+			advanceZoom(&zoom, controls.SolarSystem)
+		}
+
 		clearScreen(r.Out)
 		frameData := FrameData{
 			Now:         now,
@@ -141,12 +146,17 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 			Frame:       frame,
 			RawInput:    rawMode,
 			Controls:    controls,
+			Zoom:        zoom,
 			Local:       local,
 			NextSunrise: next,
 			ISS:         iss,
 			Anim:        &anim,
 		}
-		fmt.Fprint(r.Out, RenderFrame(frameData, termW, termH))
+		if zoom.Active {
+			fmt.Fprint(r.Out, renderTransitionFrame(frameData, termW, termH))
+		} else {
+			fmt.Fprint(r.Out, RenderFrame(frameData, termW, termH))
+		}
 
 		if !controls.Paused {
 			frame++
@@ -285,15 +295,15 @@ func makeInfoLines(data FrameData, hot []City, view string) []string {
 	lines = append(lines, fmt.Sprintf("Toggles: pause=%t m=%t a=%t t=%t c=%t s=%t", data.Controls.Paused, data.Controls.Meteors, data.Controls.Aurora, data.Controls.Trail, data.Controls.Pulses, data.Controls.Scanlines))
 	if data.RawInput {
 		if view == "compact" {
-			lines = append(lines, "Controls: [space]/p pause | m/a/t/c/s toggle | q quit")
+			lines = append(lines, "Controls: [space]/p pause | m/a/t/c/s toggle | z solar | q quit")
 		} else {
-			lines = append(lines, "Controls: [space]/p pause | m meteors | a aurora | t trail | c pulses | s scanlines | q quit")
+			lines = append(lines, "Controls: [space]/p pause | m meteors | a aurora | t trail | c pulses | s scanlines | z solar system | q quit")
 		}
 	} else {
 		if view == "compact" {
-			lines = append(lines, "Controls: p,m,a,t,c,s,q (type + Enter)")
+			lines = append(lines, "Controls: p,m,a,t,c,s,z,q (type + Enter)")
 		} else {
-			lines = append(lines, "Controls: p(space) pause | m meteors | a aurora | t trail | c pulses | s scanlines | q quit (type + Enter)")
+			lines = append(lines, "Controls: p(space) pause | m meteors | a aurora | t trail | c pulses | s scanlines | z solar system | q quit (type + Enter)")
 		}
 	}
 
