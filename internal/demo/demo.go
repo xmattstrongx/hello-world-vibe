@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -80,8 +81,24 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 	restoreUI := beginTerminalUI(r.Out)
 	defer restoreUI()
 
-	local, _ := FetchLocalGeo(ctx, r.Client)
-	next, _ := NextSunrise(ctx, r.Client, local, r.Now())
+	// Launch geo and sunrise lookups in background so animation starts instantly.
+	var local *IPGeoResponse
+	var next *time.Time
+	var geoMu sync.Mutex
+	go func() {
+		apiCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		geo, _ := FetchLocalGeo(apiCtx, r.Client)
+		if geo != nil {
+			sunCtx, sunCancel := context.WithTimeout(ctx, 2*time.Second)
+			defer sunCancel()
+			sunrise, _ := NextSunrise(sunCtx, r.Client, geo, r.Now())
+			geoMu.Lock()
+			local = geo
+			next = sunrise
+			geoMu.Unlock()
+		}
+	}()
 
 	var iss ISSMarker
 	lastISSFetch := time.Time{}
@@ -133,6 +150,10 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 		}
 
 		clearScreen(r.Out)
+		geoMu.Lock()
+		snapLocal := local
+		snapNext := next
+		geoMu.Unlock()
 		frameData := FrameData{
 			Now:         now,
 			Lang:        cfg.Lang,
@@ -141,8 +162,8 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 			Frame:       frame,
 			RawInput:    rawMode,
 			Controls:    controls,
-			Local:       local,
-			NextSunrise: next,
+			Local:       snapLocal,
+			NextSunrise: snapNext,
 			ISS:         iss,
 			Anim:        &anim,
 		}

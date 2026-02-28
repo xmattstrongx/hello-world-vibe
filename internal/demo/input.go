@@ -91,6 +91,10 @@ func readBytes(ch chan<- string, in io.Reader) {
 
 func byteToCommand(b byte) string {
 	switch b {
+	case 3: // Ctrl+C
+		return "q"
+	case 27: // ESC
+		return "q"
 	case ' ':
 		return "space"
 	case '\n', '\r', '\t':
