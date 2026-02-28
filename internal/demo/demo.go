@@ -18,6 +18,7 @@ type Config struct {
 	Lang     string
 	View     string
 	MaxASCII bool
+	Theme    string
 	Frames   int
 	Interval time.Duration
 }
@@ -44,6 +45,12 @@ func Run(out io.Writer, cfg Config) error {
 	}
 	if cfg.View != "auto" && cfg.View != "compact" && cfg.View != "cinematic" {
 		return fmt.Errorf("unsupported --view value %q (use auto, compact, or cinematic)", cfg.View)
+	}
+	if cfg.Theme == "" {
+		cfg.Theme = "default"
+	}
+	if !ValidTheme(cfg.Theme) {
+		return fmt.Errorf("unsupported --theme value %q (use default, amber, green, or blue)", cfg.Theme)
 	}
 	if cfg.Interval <= 0 {
 		cfg.Interval = DefaultInterval
@@ -90,6 +97,9 @@ func (r Runner) Live(ctx context.Context, cfg Config) error {
 	width, height, _ := globeViewport(termW, termH, initialView)
 	anim := NewAnimationState(width, height, r.Now().UnixNano())
 	controls := defaultControls()
+	if cfg.Theme != "" {
+		controls.Theme = cfg.Theme
+	}
 	input, restoreInput, rawMode := startInputListenerWithCleanup(os.Stdin)
 	defer restoreInput()
 	maxASCII := cfg.MaxASCII || os.Getenv("TERM_PROGRAM") == "iTerm.app"
@@ -214,19 +224,24 @@ func RenderFrame(data FrameData, termW, termH int) string {
 		maxInfo = 5
 	}
 
+	t := GetTheme(data.Controls.Theme)
 	pad := strings.Repeat(" ", leftPad)
 	lines := make([]string, 0, termH)
 	quality := "std"
 	if data.MaxASCII {
 		quality = "max"
 	}
-	header := fitLine(fmt.Sprintf("HELLO, WORLD FROM SPACE | UTC %s | VIEW %s | ASCII %s", data.Now.Format("15:04:05"), view, quality), termW)
-	lines = append(lines, header)
-	lines = append(lines, pad+strings.Repeat("=", width))
-	for _, row := range grid {
-		lines = append(lines, pad+string(row))
+	themeName := t.Name
+	if themeName == "" {
+		themeName = "default"
 	}
-	lines = append(lines, pad+strings.Repeat("=", width))
+	header := fitLine(fmt.Sprintf("HELLO, WORLD FROM SPACE | UTC %s | VIEW %s | ASCII %s | THEME %s", data.Now.Format("15:04:05"), view, quality, themeName), termW)
+	lines = append(lines, colorizeBright(header, t))
+	lines = append(lines, pad+colorizeText(strings.Repeat("=", width), t))
+	for _, row := range grid {
+		lines = append(lines, pad+colorizeGridLine(row, t))
+	}
+	lines = append(lines, pad+colorizeText(strings.Repeat("=", width), t))
 	printed := 0
 outer:
 	for _, ln := range infoLines {
@@ -234,7 +249,7 @@ outer:
 			if printed >= maxInfo {
 				break outer
 			}
-			lines = append(lines, fitLine(wrapped, termW))
+			lines = append(lines, colorizeText(fitLine(wrapped, termW), t))
 			printed++
 		}
 	}
@@ -282,18 +297,18 @@ func makeInfoLines(data FrameData, hot []City, view string) []string {
 	if view == "cinematic" && data.Anim != nil {
 		lines = append(lines, fmt.Sprintf("Effects: stars=%d meteors=%d trail=%d", len(data.Anim.Stars), len(data.Anim.Meteors), len(data.Anim.ISSTrail)))
 	}
-	lines = append(lines, fmt.Sprintf("Toggles: pause=%t m=%t a=%t t=%t c=%t s=%t", data.Controls.Paused, data.Controls.Meteors, data.Controls.Aurora, data.Controls.Trail, data.Controls.Pulses, data.Controls.Scanlines))
+	lines = append(lines, fmt.Sprintf("Toggles: pause=%t m=%t a=%t t=%t c=%t s=%t theme=%s", data.Controls.Paused, data.Controls.Meteors, data.Controls.Aurora, data.Controls.Trail, data.Controls.Pulses, data.Controls.Scanlines, data.Controls.Theme))
 	if data.RawInput {
 		if view == "compact" {
-			lines = append(lines, "Controls: [space]/p pause | m/a/t/c/s toggle | q quit")
+			lines = append(lines, "Controls: [space]/p pause | m/a/t/c/s toggle | r theme | q quit")
 		} else {
-			lines = append(lines, "Controls: [space]/p pause | m meteors | a aurora | t trail | c pulses | s scanlines | q quit")
+			lines = append(lines, "Controls: [space]/p pause | m meteors | a aurora | t trail | c pulses | s scanlines | r theme | q quit")
 		}
 	} else {
 		if view == "compact" {
-			lines = append(lines, "Controls: p,m,a,t,c,s,q (type + Enter)")
+			lines = append(lines, "Controls: p,m,a,t,c,s,r,q (type + Enter)")
 		} else {
-			lines = append(lines, "Controls: p(space) pause | m meteors | a aurora | t trail | c pulses | s scanlines | q quit (type + Enter)")
+			lines = append(lines, "Controls: p(space) pause | m meteors | a aurora | t trail | c pulses | s scanlines | r theme | q quit (type + Enter)")
 		}
 	}
 
@@ -309,14 +324,18 @@ func fitLine(line string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	r := []rune(line)
-	if len(r) <= width {
+	vw := visibleWidth(line)
+	if vw <= width {
 		return line
 	}
 	if width <= 1 {
+		r := []rune(stripANSI(line))
+		if len(r) == 0 {
+			return ""
+		}
 		return string(r[:1])
 	}
-	return string(r[:width-1]) + "…"
+	return truncateVisible(line, width-1) + "…"
 }
 
 func wrapLine(s string, width int) []string {
@@ -331,7 +350,7 @@ func wrapLine(s string, width int) []string {
 	cur := words[0]
 	for _, w := range words[1:] {
 		next := cur + " " + w
-		if len([]rune(next)) <= width {
+		if visibleWidth(next) <= width {
 			cur = next
 			continue
 		}
@@ -364,11 +383,84 @@ func renderFixedFrame(lines []string, width, height int) string {
 }
 
 func padRight(s string, width int) string {
-	r := []rune(s)
-	if len(r) >= width {
-		return string(r[:width])
+	vw := visibleWidth(s)
+	if vw >= width {
+		return truncateVisible(s, width)
 	}
-	return s + strings.Repeat(" ", width-len(r))
+	return s + strings.Repeat(" ", width-vw)
+}
+
+// visibleWidth returns the display width of a string, ignoring ANSI escapes.
+func visibleWidth(s string) int {
+	w := 0
+	inEsc := false
+	for _, r := range s {
+		if r == '\033' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		w++
+	}
+	return w
+}
+
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == '\033' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// truncateVisible truncates a string to maxVisible visible characters,
+// preserving ANSI escape sequences and appending a reset if needed.
+func truncateVisible(s string, maxVisible int) string {
+	var b strings.Builder
+	vis := 0
+	inEsc := false
+	hasColor := false
+	for _, r := range s {
+		if r == '\033' {
+			inEsc = true
+			hasColor = true
+			b.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			b.WriteRune(r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		if vis >= maxVisible {
+			break
+		}
+		b.WriteRune(r)
+		vis++
+	}
+	if hasColor {
+		b.WriteString("\033[0m")
+	}
+	return b.String()
 }
 
 func beginTerminalUI(out io.Writer) func() {

@@ -15,6 +15,7 @@ func defaultControls() ControlState {
 		Trail:     true,
 		Pulses:    true,
 		Scanlines: true,
+		Theme:     "default",
 	}
 }
 
@@ -65,6 +66,8 @@ func applyCommand(ctrl *ControlState, cmd string) {
 		ctrl.Pulses = !ctrl.Pulses
 	case "s", "scan", "scanline", "scanlines":
 		ctrl.Scanlines = !ctrl.Scanlines
+	case "r", "theme":
+		ctrl.Theme = NextTheme(ctrl.Theme)
 	case "q", "quit", "exit":
 		ctrl.Quit = true
 	}

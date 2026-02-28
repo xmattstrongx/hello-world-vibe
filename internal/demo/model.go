@@ -51,6 +51,7 @@ type ControlState struct {
 	Trail     bool
 	Pulses    bool
 	Scanlines bool
+	Theme     string
 	Quit      bool
 }
 
