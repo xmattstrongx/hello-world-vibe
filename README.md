@@ -3,6 +3,7 @@
 A polished Go CLI demo that evolves `Hello, world!` into a live terminal experience:
 
 - ASCII globe animation
+- iTerm-friendly cinematic ASCII rendering
 - Layered space animations (starfield, meteor showers, aurora)
 - Daylight-aware city greetings
 - ISS position marker (real-time) with fading orbit trail
@@ -45,6 +46,7 @@ Single-key controls work instantly in a real terminal (raw mode). If stdin is no
 - `c`: toggle city pulses
 - `s`: toggle scanlines
 - `q`: quit
+- `Ctrl+C`: quit cleanly and restore terminal state
 
 ## Project Layout
 

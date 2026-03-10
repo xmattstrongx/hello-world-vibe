@@ -91,6 +91,9 @@ func readBytes(ch chan<- string, in io.Reader) {
 
 func byteToCommand(b byte) string {
 	switch b {
+	case 3:
+		// Allow Ctrl+C to quit cleanly while running in raw mode.
+		return "quit"
 	case ' ':
 		return "space"
 	case '\n', '\r', '\t':
@@ -118,7 +121,9 @@ func enableRawMode(f *os.File) (func(), bool) {
 		return func() {}, false
 	}
 
-	set := exec.Command("stty", "raw", "-echo")
+	// Use non-canonical input mode (single-key reads) without full raw mode.
+	// Full raw mode also alters output processing and can break multi-line rendering.
+	set := exec.Command("stty", "-echo", "-icanon", "min", "1", "time", "0")
 	set.Stdin = f
 	if err := set.Run(); err != nil {
 		return func() {}, false

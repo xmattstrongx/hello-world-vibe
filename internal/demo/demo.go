@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 )
@@ -57,7 +58,12 @@ func Run(out io.Writer, cfg Config) error {
 			Timeout: 4 * time.Second,
 		},
 	}
-	return r.Live(context.Background(), cfg)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := r.Live(ctx, cfg); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 func (r Runner) Live(ctx context.Context, cfg Config) error {
@@ -238,7 +244,13 @@ outer:
 			printed++
 		}
 	}
-	return renderFixedFrame(lines, termW, termH)
+	renderHeight := termH
+	if renderHeight < len(lines) {
+		// Some terminal integrations can misreport very small row counts (for example 1),
+		// which would otherwise crop the full frame down to the header line.
+		renderHeight = len(lines)
+	}
+	return renderFixedFrame(lines, termW, renderHeight)
 }
 
 func makeInfoLines(data FrameData, hot []City, view string) []string {
